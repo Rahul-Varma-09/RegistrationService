@@ -15,6 +15,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.montran.recruitment.constants.ErrorMessageConstants;
 import com.montran.recruitment.entities.Candidate;
 import com.montran.recruitment.enums.CvReviewStage;
 import com.montran.recruitment.http.response.GenericResponse;
@@ -34,29 +35,6 @@ public class CandidateServiceImpl implements CandidateService {
 	@Value("${channelServiceUpdateSourceEndpoint}")
 	private String channelServiceUpdateSourceEndpoint;
 	
-	private Candidate buildCandidateObject(JsonNode rootNode, MultipartFile file) {
-		try {
-			Candidate candidate = new Candidate();
-			candidate.setName(rootNode.get("name").asText());
-			candidate.setEmail(rootNode.get("email").asText());
-			candidate.setPhoneNumber(rootNode.get("phoneNumber").asText());
-			candidate.setEducation(rootNode.get("education").asText());
-			candidate.setAge(rootNode.get("age").asInt());
-			candidate.setDateOfBirth(rootNode.get("dateOfBirth").asText());
-			candidate.setCurrentLocation(rootNode.get("currentLocation").asText());
-			candidate.setPreviousCompany(rootNode.get("previousCompany").asText());
-			candidate.setWorkExperience(rootNode.get("workExperience").asDouble());
-			candidate.setCvStatus(CvReviewStage.PENDING_FOR_CV_REVIEW.name());
-			candidate.setCreatedDate(new Date());
-			candidate.setUniqueAccessToken(rootNode.get("uniqueAccessToken").asText());
-			candidate.setCv(file.getBytes());
-			return candidate;
-		} catch (Exception e) {
-			log.error("Error in saving Recruitment record in DB", e);
-			return null;
-		}
-	}
-	
 	/**
 	 * Register a candidate
 	 */
@@ -64,25 +42,23 @@ public class CandidateServiceImpl implements CandidateService {
 	public GenericResponse<?> registerCandidate(String data, MultipartFile file) {
 		try {
 			ObjectMapper mapper = new ObjectMapper();
-			JsonNode rootNode = mapper.readTree(data);
-			String candidateName = rootNode.get("name").asText();
-			String candidateEmail = rootNode.get("email").asText();
-			
-			/** Check if Candidate Data is Present in Cooling Period */
-			Boolean isCandidateInCoolingPeriod = checkCoolingStatusForCandidate(candidateName, candidateEmail);
-			if (isCandidateInCoolingPeriod) {
-				return GenericResponse.builder().message("Registration Failed...Please wait for 6 months from Previous Registration").code("ERR").body(null).build();
-			} 
-			
-			Candidate candidate = buildCandidateObject(rootNode, file);
-			if (candidate == null) {
+			Candidate candidateObj = mapper.readValue(data.getBytes(), Candidate.class);
+			if (candidateObj == null) {
 				return GenericResponse.builder().message("Error in Registering Candidate").code("ERR").body(null).build();
 			}
+			candidateObj.setCvStatus(CvReviewStage.PENDING_REVIEW.name());
+			candidateObj.setCreatedDate(new Date());
+			candidateObj.setCv(file.getBytes());
 			
-			Candidate savedCandidate = candidateRepository.save(candidate);
-			GenericResponse<?> channelServiceResponse = updateCandidateSource(savedCandidate);
-			log.info("Channel Service Response for Candidate " + savedCandidate.getId() + " is" + channelServiceResponse.getMessage());
-			return GenericResponse.builder().message("Candidate Registered Successfully").code("OK").body(savedCandidate).build();
+			/** Check if Candidate Data is Present in Cooling Period */
+			Boolean isCandidateInCoolingPeriod = checkCoolingStatusForCandidate(candidateObj.getName(), candidateObj.getEmail());
+			if (isCandidateInCoolingPeriod) {
+				return GenericResponse.builder().message(ErrorMessageConstants.ERR_COOLING_PERIOD).code("ERR").body(null).build();
+			} 
+			candidateObj = candidateRepository.save(candidateObj);
+			GenericResponse<?> channelServiceResponse = updateCandidateSource(candidateObj);
+			log.info("Channel Service Response for Candidate " + candidateObj.getId() + " is" + channelServiceResponse.getMessage());
+			return GenericResponse.builder().message("Candidate Registered Successfully").code("OK").body(candidateObj).build();
 		} catch (Exception e) {
 			log.error("Error in registering candidates", e);
 			return GenericResponse.builder().message("Error In Registering Candidate").code("ERR").body(null).build();

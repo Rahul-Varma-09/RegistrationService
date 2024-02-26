@@ -45,4 +45,5 @@ public class RegistrationController {
 		return candidateService.fetchCandidatesByCvStatus(cvStatus);
 	}
 
+	
 }
